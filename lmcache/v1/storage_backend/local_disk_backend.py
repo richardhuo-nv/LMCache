@@ -12,6 +12,7 @@ import torch
 
 # First Party
 from lmcache.logging import init_logger
+from lmcache.offload_tracker import OffloadTracker
 from lmcache.observability import LMCStatsMonitor
 from lmcache.utils import CacheEngineKey, DiskCacheMetadata, _lmcache_nvtx_annotate
 from lmcache.v1.cache_controller.message import KVAdmitMsg, KVEvictMsg
@@ -124,6 +125,8 @@ class LocalDiskBackend(StorageBackendInterface):
         self.loop = loop
 
         self.use_local_cpu = config.local_cpu
+
+        self.offload_tracker = OffloadTracker("/tmp/offload_log.txt", interval=5, reset_after_write=False)
 
         # Block size (for file system I/O)
         stat = os.statvfs(self.path)
@@ -456,6 +459,7 @@ class LocalDiskBackend(StorageBackendInterface):
         self.usage += size
         self.stats_monitor.update_local_storage_usage(self.usage)
 
+        self.offload_tracker.increment(1, size)
         # TODO(Jiayi): need to add ref count in disk memory object
         self.write_file(buffer, path)
 
@@ -564,4 +568,5 @@ class LocalDiskBackend(StorageBackendInterface):
         return self.local_cpu_backend
 
     def close(self) -> None:
+        self.offload_tracker.stop()
         self.disk_worker.close()
